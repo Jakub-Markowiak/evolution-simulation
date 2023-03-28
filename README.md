@@ -7,7 +7,7 @@ Follow the steps below to run the project on your local device and reproduce  re
 1. Download and install [`Python 3.9`](https://www.python.org/downloads/release/python-390/)
 2. Download and install most recent [`R`](https://www.r-project.org) distribution
 3. Download and install most recent [`Quarto`](https://quarto.org) version
-4. Recommended IDE: [`Visual Studio Code`](https://code.visualstudio.com)
+4. Recommended editor: [`Visual Studio Code`](https://code.visualstudio.com)
 5. Clone repository: `git clone git@github.com:Jakub-Markowiak/evolution-simulation.git` (or download manually and extract to specific location)
 6. Create virtual `python` environment and install required packages. Open command line and type:
 ```
