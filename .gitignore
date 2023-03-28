@@ -1,3 +1,12 @@
+# User defined
+.evolution-simulation
+.vscode
+zadanie_rekrutacyjne.docx
+
+# R cache
+*.Rhistory
+*.RData
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

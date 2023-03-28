@@ -1,0 +1,890 @@
+---
+title: "Zadanie rekrutacyjne Proxi.cloud - opracowanie wyników"
+lang: pl
+format:
+  html:
+    css: styles.css
+    toc: true
+    self-contained: true
+    number-sections: true
+    html-math-method: katex
+    code-fold: true
+    theme: 
+      light: flatly
+      dark: darkly
+execute: 
+  cache: false
+  eval: true
+engine: knitr
+---
+
+# Wstęp
+Celem tego opracowania jest przedstawienie metodologii oraz proponowanego rozwiązania zadania rekrutacyjnego Proxi.cloud. Zadania dotyczyły analizy danych uzyskanych w wyniku prowadzenia symulacji zachowań pewnych stworzeń umieszczonych na ograniczonej, dwuwymiarowej planszy, zdolnych do rozmnażania, wymierania, a także mutowania w zależności od dobranego zestawu parametrów.
+
+W sekcji [-@sec-methodology] opisane zostają narzędzia, które wykorzystano w celu rozwiązania zadania rekrutacyjnego, a także opis głównego modułu napisanego w języku `Python`, który posłużył jako fundament do przeprowadzenia wszystkich wymienionych w tym opracowaniu eksperymentów. Następnie wyjaśnione zostają kolejne kroki prowadzenia symulacji i gromadzenia wyników, które zostają poddane analizie.
+
+Sekcja [-@sec-solutions] zawiera opracowanie propozycji rozwiązań zadań rekrutacyjnych z osobną podsekcją dla kolejnych zadań. Przy okazji każdego z nich umieszczone zostają fragmenty kodu służącego do generowania danych, a także prowadzenia analizy lub rysowania poszczególnych wizualizacji. 
+
+# Metodologia {#sec-methodology}
+W niniejszej sekcji opisane zostają narzędzia wykorzystane do realizacji kolejnych zadań, schemat przedstawiający strukturę głównego modułu symulacyjnego, a także ogólne podejście do przeprowadzania symulacji i generowania danych na podstawie uzyskiwanych wyników.
+
+## Wybór narzędzi
+W celu zrealizowania wskazanych zadań wykorzystano następujące narzędzia:
+
+* [`Python 3.9`](https://www.python.org/downloads/release/python-390/) -- wykorzystany do napisania głównego modułu służącego do prowadzenia symulacji (patrz: @sec-python-module),
+* [`R`](https://www.r-project.org) -- przeprowadzenie analizy danych oraz wykonanie wizualizacji,
+* [`Quarto`](https://quarto.org) -- przygotowanie dynamicznie generowanego raportu zawierającego opracowanie wyników.
+
+## Opis modułu wykorzystanego do prowadzenia symulacji {#sec-python-module}
+Moduł służący do prowadzenia symulacji został napisany w języku `Python` w wersji `3.9`. Podzielony został on na dwa podmoduły:
+
+* `evolution_simulation` - główna część modułu odpowiedzialna za prowadzenie symulacji dla zadanych parametrów,
+* `handlers` - podmoduły zawierające funkcje pomocnicze wykorzystywane w głównej części modułu; znalazł się tam moduł `RGB` stosowany do prowadzenia operacji na kolorach w reprezentacji RGB.
+
+Na poniższym diagramie umieszczony został schemat przedstawiający strukturę głównego modułu oraz poszczególnych klas.
+```{mermaid}
+classDiagram
+    RGB ..> Creature
+    Creature ..> Simulation
+
+    class RGB{
+        +int: red
+        +int: green
+        +int: blue
+        +calculate_similarity(other) float
+        +generate_random() RGB
+    }
+    class Creature{
+        +uuid: id
+        +RGB: color
+        +tuple[float, float]: position
+        +bool: is_mutant
+        +distance(other) int
+        +breed(min_color_similarity, chance_mutant, color_method) Creature | None
+    }
+    class Simulation{
+      +float: size
+      +list[Creature]: starting_creatures 
+      +int: view_distance
+      +str: color_method
+      +float: min_color_similarity
+      +int: duration
+      +float: chance_death
+      +float: chance_breed
+      +float: chance_mutant
+      +run()
+      +_assign_location(creatures)
+      +_remove_location(creatures)
+      +_simulate_day()
+      +_perform_deaths()
+      +_perform_breeding()
+      +_pair_creatures()
+  }
+```
+
+Taka konstrukcja modułu pozwala na dostosowanie parametrów do każdego spośród trzech poleceń poleceń wchodzących w skład zadania rekrutacyjnego. Możliwe jest zarządzanie prawdopodobieństwem śmierci, rozmnażania oraz wystąpienia mutantów, a także wymaganym podobieństwem kolorów oraz minimalną odległością "widzenia się" par stworów.
+
+Dokumentacja poszczególnych klas i metod znajduje się bezpośrednio w kodzie, wykorzystując `docstrings`. Kod źródłowy modułu został umieszczony w folderze `src`.
+
+## Przeprowadzenie eksperymentów
+Aby uzyskać miarodajne wyniki, dla każdego spośród analizowanych zestawów parametrów potwórzono symulację $n$ razy, gdzie liczba powtórzeń $n$ została w pewien sposób uzależniona od złożoności obliczeniowej symulacji oraz stabilności wyników. Domyślnie, przy okazji pierwszego zadania, liczba ta wyniosła $10000$, natomiast następnie, wraz z poznawaniem charakterystyki rozkładu otrzymywanych wyników, liczba ta była sukcesywnie zmniejszana.
+
+
+# Rozwiązania zadań {#sec-solutions}
+Poniżej przedstawione zostają rozwiązania poszczególnych zadań. Główna treść zadania:
+
+<blockquote>
+Napisz symulację ewolucji według poniższych założeń i odpowiedz na pytania. Symulacja rozpoczyna się z 10 stworami, które mają jedną unikalną właściwość (i.e. każdy ma zdefiniowaną ją indywidualnie) – kolor. 5 stworów jest niebieskich, 5 jest czerwonych. Symulacja powinna toczyć się na dwuwymiarowej przestrzeni o wielkości 1000 x 1000 (jednostka nieistotna). Symulacja powinna toczyć się przez 100 dni, w którym każdego dnia stworzenie ma 10% szansy na śmierć. Stworzenia pojawiają się pierwszego dnia na planszy otrzymując losowe współrzędne X i Y.
+</blockquote>
+
+Dla każdego spośród trzech poleceń pokazany zostaje sposób generowania danych wraz z kodem źródłowym w `Pythonie`, a następnie prowadzona zostaje analiza danych z wykorzystaniem środowiska `R`.
+
+## Zadanie 1.
+Treść pierwszego polecenia:
+<blockquote>
+Każdego dnia stwory łączą się w losowe pary – każdego dnia inne – i mają X% szansy na rozmnożenie się (z każdej pary powstaje 1 stworzenie losowego koloru) pod warunkiem, że się „widzą” (czyli są od siebie oddalone o nie więcej, niż 1/4 długości boku planszy).
+Przeprowadź symulację i odpowiedz na następujące pytania:
+
+  a)	Jak wielkość parametru x wpływa na liczebność grupy po 100 iteracjach. 
+  b)	Jak modyfikacje parametru śmiertelności wpływają na liczebność grup.
+  c)	Wskaż trzy najciekawsze wnioski z przebiegu eksperymentu
+
+</blockquote>
+
+### Generowanie danych
+Przed ropozczęciem symulacji zdefiniowany został stan początkowy -- na planszy ma znajdować się po $5$ stworów koloru niebieskiego i czerwonego. Następnie wygenerowany został zbiór parametrów postaci $(x,y)$, gdzie $x \in \{0.6, 0.65, \ldots 1\}$ jest prawdopodobieństwem rozmnożania, natomiast $y \in \{0.01, 0.02, \ldots, 0.15\}$ określa prawdopodobieństwo śmierci. Dla każdej takiej pary przeprowadzono symulację $10000$ razy, a wyniki zapisano do pliku w formacie `csv`. Parametry dla symulacji zostały dostosowane do treści zadania (szczegóły w kodzie źródłowym).
+
+```{python}
+#| eval: false
+from src.handlers.rgb import RGB
+from src.evolution_simulation import Simulation, Creature
+from itertools import product
+
+import numpy as np
+import pandas as pd
+
+n = 5
+red, blue = RGB(255, 0, 0), RGB(0, 0, 255)
+creatures = [Creature(red) for _ in range(n)] + [Creature(blue) for _ in range(n)]
+
+X = np.round(np.arange(0.6, 1.05, 0.05), 2)
+Y = np.round(np.arange(0.01, 0.15, 0.01), 2)
+parameters = list(product(X, Y))
+
+results = list()
+for parameter in parameters:
+    x, y = parameter[0], parameter[1]
+    for _ in range(10_000):
+        sim = Simulation(
+            size=1_000,
+            starting_creatures=creatures,
+            duration=100,
+            chance_breed=x,
+            chance_death=y,
+            chance_mutant=0,
+            min_color_similarity=0,
+            view_distance=250,
+            color_method="discrete",
+        )
+
+        results.append({"x": x, "y": y, "count": len(sim.creatures)})
+
+pd.DataFrame(results).to_csv("./data/01_raw/task_1.csv")
+
+```
+Wyniki zostały zapisane w folderze `data/01_raw` jako `task_1.csv`.
+
+### Analiza danych {#sec-task-1-analysis}
+Na rysunku [-@fig-task-1-a] przedstawione zostały dwa wykresy obrazujące wpływ parametru rozmnażania $x$ na liczebność grupy po $100$ iteracjach przy ustalonym parametrze śmierci $y = 10\%$:
+
+* prawdopodobieństwo przeżycia kolonii, a więc przeżycia co najmniej jednego osobnika na koniec symulacji,
+* średnia liczba stworów w grupie na koniec symulacji.
+
+```{r}
+#| eval: true
+#| echo: true
+#| output: false
+library(RColorBrewer)
+library(tidyverse)
+library(dplyr)
+library(ggpubr)
+
+options(warn=-1)
+
+df <- read.csv("../../data/01_raw/task_1.csv") %>%
+  select(x, y, count)
+
+df_more_than_1 <- df %>%
+  filter(y == 0.1) %>%
+  group_by(x, y) %>% 
+  summarise(prob = sum(count > 0)) %>%
+  mutate(prob = prob / 10000)
+
+p1 <- ggplot(data=df_more_than_1, aes(x = x, y = prob)) +
+    geom_point() +
+    scale_y_continuous(labels=scales::percent) +
+    ggtitle("Pr. przeżycia kolonii według parametru x dla y = 10%") +
+    labs(
+      x = "x (param. rozmnażania)",
+      y = "pr. przeżycia kolonii"
+    )
+    
+df_means_y10 <- df %>%
+  filter(y == 0.1) %>%
+  group_by(x, y) %>% 
+  summarise(mn = mean(count), mx = max(count))
+
+p2 <- ggplot(df_means_y10, aes(x=x, y=mn)) +
+  geom_point() +
+  ggtitle("Śr. liczba stworów w grupie po 100 iteracjach wg parametru x dla y = 10%") +
+  labs(
+    x = "x (param. rozmnażania)",
+    y = "śr. liczba stworów"
+  )
+
+ggarrange(plotlist = list(p1, p2), ncol=1)
+```
+
+```{r}
+#| label: fig-task-1-a
+#| fig-cap: "Prawdopodobieństwo przeżycia kolonii oraz średnia liczba stworów w grupie po 100 iteracjach wg parametru rozmnażania $x$ dla ustalonego parametru śmierci $y = 10\\%$"
+#| eval: true
+#| echo: false
+ggarrange(plotlist = list(p1, p2), ncol=1)
+```
+
+Można zaobserwować, że wraz ze wzrostem parametru rozmnażania $x$ rośnie zarówno prawdopodobieństwo przeżycia kolonii, jak i średnia liczba znajdujących się w niej stworów. Dynamika wzrostu obu metryk jest bardzo podobna i przypomina wzrost wykładniczy. 
+
+Widać również, że zaobserwowane wartości są bardzo niskie -- nawet dla najkorzystniejszego parametru parametru rozmnażania ($x = 1$), kolonia przetrwała tylko w niewiele ponad $2\%$ przypadków.
+
+Można zatem analogicznie zbadać, w jaki sposób parametr śmiertelności $y$ wpływa na liczebność grup. Na rysunku [-@fig-task-1-b-1] przedstawione zostało prawdopodobieństwo przeżycia kolonii dla różnych wartości parametrów $x$ oraz $y$.
+
+```{r}
+#| label: fig-task-1-b-1
+#| fig-cap: "Prawdopodobieństwo przeżycia kolonii po 100 iteracjach wg parametru rozmnażania $x$ oraz parametru śmiertelności $y$"
+#| fig-subcap: 
+#|  - "zależność pr. przeżycia kolonii od $x$ dla różnych wartości $y$"
+#|  - "zależność pr. przeżycia kolonii od parametrów $x$ i $y$"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+df_probs_by_x_y <- df %>%
+  group_by(x, y) %>% 
+  summarise(prob = sum(count > 0), .groups='drop') %>%
+  mutate(prob = prob / 10000)
+
+ggplot(
+  data=df_probs_by_x_y,
+  aes(x = x, y = prob, color = as.factor(y))
+) +
+  geom_point() +
+  scale_y_continuous(labels = scales::percent) +
+  geom_smooth(formula = y~x, method = "loess", se = F) +
+  labs(
+    x = "x (param. rozmnażania)",
+    y = "pr. przeżycia kolonii",
+    color = "y (param. śmiertelności)"
+  )
+
+ggplot(
+  data=df_probs_by_x_y,
+  aes(x = as.factor(x), y = as.factor(y), fill = prob)
+) +
+  geom_tile() +
+  scale_fill_distiller(palette = "YlGn") +
+  labs(
+    x = "x (param. rozmnażania)",
+    y = "y (param. śmiertelności)",
+    fill = "pr. przeżycia kolonii"
+  )
+
+
+```
+
+Można zaobserwować, że wraz ze zmniejszaniem parametru śmiertelności $y$ rośnie prawdopodobieństwo przeżycia kolonii niezależnie od wartości parametru $x$. Na podstawie obu wykresów można również wyciągnąć wniosek, że najwyższe prawdopodobieństwo przeżycia kolonii zostanie uzyskane dla parametru śmierci $y = 0.01$, niezależnie od wartości $x$, lub dla parametru śmierci $y = 0.02$ oraz $x \in \left[0.85, 1\right]$. Prawdopodobieństwo jest wówczas równe $1$, więc mamy pewność, że dla takich wartości początkowych kolonia przeżyje. Jest to bardzo istotna informacja w kontekście prowadzenia kolejnych symulacji.
+
+Wartym sprawdzenia jest zbadanie analogicznych zależności dla średniej liczebności grup. Wyniki zostały przedstawione na rysunku [-@fig-task-1-b-2].
+```{r}
+#| label: fig-task-1-b-2
+#| fig-cap: "Średnia liczba stworów w grupie po 100 iteracjach wg parametru rozmnażania $x$ oraz parametru śmiertelności $y$"
+#| fig-subcap: 
+#|  - "zależność średniej liczby stworów w grupie od $x$ dla różnych wartości $y$"
+#|  - "zależność średniej liczby stworów w grupie od parametrów $x$ i $y$"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+df_means_by_x_y <- df %>%
+  group_by(x, y) %>% 
+  filter(y<=0.12) %>%
+  summarise(mn = mean(count), mx = max(count), .groups = 'drop')
+
+ggplot(
+  data = df_means_by_x_y,
+  aes(x = x, y = mn, color = as.factor(y))
+) +
+  geom_point() +
+  geom_smooth(formula = y~x, method = "loess", se = F) +
+  labs(
+    x = "x (param. rozmnażania)",
+    color = "y (param. śmiertelności)",
+    y = "śr. liczba stworów"
+  )
+
+ggplot(
+  data = df_means_by_x_y,
+  aes(x = x, y = as.factor(y), fill = mn)
+) +
+  geom_tile() +
+  scale_fill_distiller(palette = "YlGn") +
+  labs(
+    x = "x (param. rozmnażania)",
+    y = "y (param. śmiertelności)",
+    fill = "śr. liczba stworów"
+  )
+```
+
+Wyraźnie widać wzrost wartości średniej liczby stworów wraz ze wzrostem parametru rozmnażania $x$ oraz zmniejszeniem parametru śmiertelności $y$. Tym razem największą wartość ta metryka przyjmuje jednoznacznie dla parametrów $(x, y) = (1, 0.01)$. Te wartości gwarantują, jak poprzednio, przeżycie kolonii, a także potencjalnie  największą liczbę stworów po 100 iteracjach. Dodatkowo można spodziewać się, że zależność średniej liczby stworów od parametru $x$ ma charakter wykładniczy, niezależnie od parametru $y$.  
+
+Na rysunku [-@fig-task-1-c] umieszczony został wykres pudełkowy charakteryzujący rozkład liczby stworów po 100 iteracjach dla różnych wartości parametru śmiertelności $y$ przy ustalonym $x = 1$. 
+```{r}
+#| label: fig-task-1-c
+#| fig-cap: "Wykres pudełkowy obrazujący rozkład liczby stworów po 100 iteracjach dla różnych wartości param. śmiertelności $y$ przy ustalonym $x = 1$"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+ggplot(
+  data = df %>%
+    filter(x == 1),
+  aes(x = as.factor(y), y = count)
+) +
+  geom_boxplot() +
+  labs(
+    x = "y (param. śmiertelności)",
+    y = "liczba stworów"
+  ) + ggtitle(
+    "x (param. rozmnażania) = 1"
+  )
+```
+
+Wraz ze zmniejszeniem parametru śmiertelności $y$, obserwowany jest również wzrost statystyk takich jak mediana oraz rozrzut. Ponownie można dostrzec, że optymalnymi parametrami są $x = 1$ oraz $y = 0.01$. 
+
+### Wnioski
+Poniżej wypisane zostały trzy najistotniejsze wnioski wyciągnięte w oparciu o przeprowadzoną wcześniej analizę danych:
+
+* parametr rozmnażania $x$ ma mniejszy wpływ na końcową liczebność grup niż parametr śmierci $y$ -- nawet przyjmując $x = 1$ nie możemy spodziewać się przeżycia kolonii nie znając parametru $y$. Z drugiej strony, przyjmując $y = 0.01$ i nie znając wartości $x$ możemy spodziewać się, że kolonia przeżyje; parametr $x$ kontroluje natomiast końcowy rozmiar kolonii. 
+* średnia liczba stworów w kolonii po 100 iteracjach rośnie wykładniczo wraz ze wzrostem parametru $x$; charakter wzrostu nie jest zależny od wartości parametru $y$,
+* optymalny rozwój kolonii zapewniają parametry $x = 1$ oraz $y = 0.01$ -- wówczas prawdopodobieństwo przetrwania kolonii jest równe $1$, natomiast brak dodatkowego ograniczenia przy rozmnażaniu pozwala na gwałtowny wzrost populacji.
+
+## Zadanie 2.
+Treść drugiego polecenia:
+<blockquote>
+Wybierz parametr śmiertelności i rozmnożenia się̨ które Twoim zdaniem gwarantuje optymalny rozwój grupy. Każdego dnia stwory łączą się̨ w losowe pary - każdego dnia inne - i mają X% procent szansy na rozmnożenie się̨ tylko pod warunkiem, że się widzą i ich kolory są̨ takie same.
+Jak to wpłynęło na wyniki eksperymentu? Wskaż trzy kluczowe zmiany, które w grupach spowodował ten element.
+</blockquote>
+
+Jak zostało wskazane w sekcji [-@sec-task-1-analysis], za optymalny zestaw parametrów warto wybrać parametr przeżycia $x = 1$ oraz parametr śmiertelności $y = 0.01$. Taki dobór wartości gwarantuje przeżycie kolonii oraz uzyskanie optymalnych wyników.
+
+### Generowanie danych
+Przed ropozczęciem symulacji zdefiniowany został stan początkowy -- na planszy ma znajdować się po $5$ stworów koloru niebieskiego i czerwonego. Eksperyment przeprowadzono dwa razy -- raz dla parametru minimalnego podobieństwa równego $0$, raz przyjmując wartość $1$. Dla obu parametrów przeprowadzono symulację $1000$ razy, a wyniki zapisano do plików w formacie `csv`. Parametry dla symulacji zostały dostosowane do treści zadania (szczegóły w kodzie źródłowym).
+
+```{python}
+#| eval: false
+from src.handlers.rgb import RGB
+from src.evolution_simulation import Simulation, Creature
+from itertools import product
+
+import numpy as np
+import pandas as pd
+
+n = 5
+red, blue = RGB(255,0,0), RGB(0,0,255)
+creatures = [Creature(red) for _ in range(n)] + [Creature(blue) for _ in range(n)]
+
+experiments = {"A": 0, "B": 1}
+
+for label in {"A", "B"}:
+  results = list()
+  for _ in range(1_000):
+      sim = Simulation(
+          size=1_000,
+          starting_creatures=creatures,
+          duration=100,
+          chance_breed=1,
+          chance_death=0.01,
+          chance_mutant=0,
+          min_color_similarity=experiments[label],
+          view_distance=250,
+          color_method="discrete"
+      )
+      
+      df_temp = pd.DataFrame(
+        [str(creature.color.code) for creature in sim.creatures],
+        columns=['color']
+      )
+      
+      results.append({
+        "x": 1,
+        "y": 0.01,
+        "count": len(sim.creatures),
+        "colors": df_temp.value_counts()
+      })
+
+  pd.DataFrame(results).to_csv(
+    f"data/01_raw/task_2_{label}",
+    index=False
+  )
+
+```
+Wyniki zostały zapisane w folderze `data/01_raw` jako `task_2_A.csv` oraz `task_2_B.csv`. Etykieta `A` odpowiada wynikom dla parametru minimalnego podobieństwa równego $0$, natomiast etykieta `B` parametrowi minimalnego podobieństwa równemu $1$.
+
+### Analiza danych
+Celem analizy jest zbadanie różnic między wynikami dwóch eksperymentów, różniących się tylko wartością parametru minimalnego podobieństwa stworów, wymaganego do rozmnożenia. W pierwszym doświadczeniu parametr ten wyniósł $0$, natomiast w drugim był równy $1$.
+
+Wskazane jest zbadanie, jak zmienił się rozkład liczby stworów po nałożeniu warunku minimalnego podobieństwa. Na rysunku [-@fig-task-2-1] przedstawiony został wykres pudełkowy oraz estymator gęstości tego rozkładu.
+
+```{r}
+#| label: fig-task-2-1
+#| fig-height: 8
+#| fig-cap: "Zależność liczby stworów od parametru minimalnego podobieństwa przy optymalnych parametrach rozwoju kolonii"
+#| fig-subcap: 
+#|  - "wykres pudełkowy opisujący gęstość rozkładu liczby stworów dla obu rozwiązań"
+#|  - "wykres estymatora gęstości rozkładu liczby stworów dla obu rozwiązań"
+#| layout-ncol: 2
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+df_A <- read.csv("../../data/01_raw/task_2_A.csv")
+df_B <- read.csv('../../data/01_raw/task_2_B.csv')
+
+labels <- list(
+  "A" = paste("0"),
+  "B" = paste("1")
+)
+
+ggplot() +
+  geom_boxplot(
+    data=df_A,
+    aes(x = labels$A, fill = labels$A, y = count)
+  ) +
+  geom_boxplot(
+    data=df_B,
+    aes(x = labels$B, fill = labels$B, y = count)
+  ) +
+  labs(
+    x = "param. min. podobieństwa",
+    y = "liczba stworów"
+  ) +
+  scale_fill_brewer(palette = "YlGn") +
+  theme(
+    legend.position = "none"
+  )
+
+ggplot() +
+  geom_density(
+    data = df_A,
+    aes(x = count, y = ..density.., fill = labels$A),
+    alpha=0.6
+  ) +
+  geom_density(
+    data = df_B,
+    aes(x = count, y = ..density.., fill = labels$B),
+    alpha=0.6
+  ) + labs(
+    x = "liczba stworów",
+    y = "gęstość",
+    fill = "param. min. podobieństwa"
+  ) +
+  scale_fill_brewer(palette = "YlGn") +
+  theme(
+    legend.position = "bottom"
+  )
+```
+
+Okazuje się, że rozkład zmienił swoją charakterystykę -- mediana oraz rozrzut zmniejszyły się, a sam rozkład stał się silnie prawostronnie skośny. Wynika stąd, że narzucenie dodatkowego warunku wyraźnie negatywnie wpływa na liczbę stworów w kolonii po zakończeniu symulacji.
+
+Rysunek [-@fig-task-2-2] przedstawia rozkład udziału liczby stworów o danym kolorze w całej populacji przed i po uwzględnieniu dodatkowego parametru.
+
+```{r}
+#| label: fig-task-2-2
+#| fig-cap: "Wpływ parametru minimalnego podobieństwa na udział stworów o danym kolorze w całej populacji"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+ggplot() +
+  geom_density(
+    data = df_A,
+    aes(x = blue / count, y = ..density.., fill = labels$A), alpha=0.6
+  ) +
+  geom_density(
+    data = df_B,
+    aes(x = blue / count, y = ..density.., fill = labels$B), alpha=0.6
+  ) +
+  labs(
+    x = "udział stworów koloru niebieskiego w całej populacji",
+    y = "gęstość",
+    fill = "param. min. podobieństwa"
+  ) +
+  scale_x_continuous(labels=scales::percent) +
+  scale_fill_brewer(palette = "YlGn") +
+  theme(legend.position = "bottom")
+```
+
+W oczy rzuca się fakt, że rozkład zmienił się z jednomodalnego na dwumodalny, tzn. zamiast symetrycznego rozkładu skupionego w pobliżu $50\%$, mamy do czynienia z rozkładem skupionym w dwóch punktach: $0\%$ oraz $100\%$. Oznacza to, że zamiast równomiernego rozkładu kolorystycznego w końcowej populacji, pojawia się tendencja do zdominowania populacji przez przedstawicieli tylko jednego koloru. Wartości w pobliżu $0\%$ odpowiadają koloniom "czerwonych" osobników i, analogicznie, wartości bliskie $100\%$ odpowiadają koloniom "niebieskich" stworów. Znacznie rzadziej występują natomiast kolonie zrównoważone.
+
+Można się również zastanowić, który scenariusz jest korzystniejszy dla rozwoju grupy - zdominowanie jej przez jeden kolor czy utworzenie zbalansowanej populacji. Na rysunku [-@fig-task-2-3] przedstawiony został rozkład liczby stworów w kolonii po zakończeniu symulacji z wyszczególnieniem trzech grup:
+
+* grupa zdominowana przez kolor czerwony (udział czerwonych stworów w populacji wynosi co najmniej $90\%$),
+* grupa zdominowana przez kolor niebieski (udział niebieskich stworów w populacji wynosi co najmniej $90\%$),
+* grupa zbalansowana (brak dominacji któregokolwiek koloru).
+
+```{r}
+#| label: fig-task-2-3
+#| fig-cap: "Wpływ zdominowania populacji przez osobniki jednego koloru na liczebność populacji"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+df_B_blue <- df_B %>%
+  filter(blue / count >= 0.9)
+df_B_blue$"domination" = "blue"
+df_B_balanced <- df_B %>%
+  filter(blue / count < 0.9 & blue / count > 0.1)
+df_B_balanced$"domination" = "balanced"
+df_B_red <- df_B %>%
+  filter(red / count >= 0.9)
+df_B_red$"domination" = 'red'
+
+df_B_domination <- rbind(
+  df_B_blue,
+  df_B_balanced,
+  df_B_red
+)
+
+df_B_domination$domination <- factor(
+  df_B_domination$domination,
+  levels = c("red", "balanced", "blue")
+) 
+
+ggplot() +
+  geom_boxplot(
+    data = df_B_domination,
+    aes(x=domination, y = count, fill = domination)
+  ) +
+  scale_fill_manual(
+    labels = c("czerwony", "brak", "niebieski"),
+    values = c("#F8766D", "#8d96a3", "#529EFF")
+  ) +
+  scale_x_discrete(
+    labels = c("czerwony", "brak", "niebieski")
+  ) +
+  theme(
+    legend.position = "none"
+  ) +
+  labs(
+    x = "grupa dominująca (udział > 90%)",
+    y = "liczba stworów w kolonii"
+  )
+```
+
+Widać, że grupy niezdominowane przez przedstawicieli któregokolwiek koloru są wyraźnie mniej liczne -- zarówno mediana, jak i poszczególne kwantyle są zauważalnie niższe niż w pozostałych przypadkach. Nie widać natomiast zdecydowanej różnicy pomiędzy obiema grupami zdominowanymi przez jedną z barw. 
+
+### Wnioski
+Poniżej wypisane zostały trzy najistotniejsze wnioski wyciągnięte w oparciu o przeprowadzoną wcześniej analizę danych:
+
+* kolonie stworów po nałożeniu warunku minimalnego podobieństwa są mniej liczne,
+* po nałożeniu warunku minimalnego podobieństwa zdecydowanie częściej występuje zjawisko zdominowania populacji przez przedstawicieli jednego koloru, rzadziej natomiast występują kolonie zrównoważone,
+* ustalając wartość parametru minimalnego podobieństwa jako $1$, kolonie zdominowane przez jeden z kolorów są liczniejsze niż kolonie zbalansowane.
+
+
+## Zadanie 3.
+Treść trzeciego polecenia:
+<blockquote>
+Wybierz parametr śmiertelności i rozmnożenia się, które Twoim zdaniem gwarantuje optymalny rozwój grupy. Każdego dnia stwory łączą się w losowe pary - każdego dnia inne - i jest gwarantowane, że się rozmnożą̨, jeśli się widzą oraz ich kolory są podobne do siebie w Y% procent (do kalkulacji różnic wykorzystaj reprezentacje kodu w RGB). Kolor potomstwa będzie średnią kolorów rodziców. Dodatkowo, potomstwo ma 15% szans ma mutację - tzn. że kolor będzie zupełnie inny niż kolor rodziców (losowy).
+
+Do zrobienia: 
+
+  a)	Opisz co się dzieje z liczebnością grup w poszczególnych kolorach w zależności od parametru Y. Szczególną uwagę zwróć na los mutantów.
+  b)	Przeprowadź eksperyment dla parametrów które wg Ciebie zapewniają optymalny rozwój grupy. Zwizualizuj rozkład kolorystyczny stworów na koniec eksperymentu. 
+
+</blockquote>
+
+### Generowanie danych
+Ponownie za optymalny zestaw parametrów wytypowany zostanie parametr przeżycia $x = 1$ oraz parametr śmiertelności $y = 0.01$ (patrz: sekcja [-@sec-task-1-analysis]). Dodatkowo uwzględniony zostanie parametr minimalnego podobieństwa $s \in \{0, 0.05, \ldots, 1\}$, którego wpływ na kształtowanie się kolonii zostanie poddany analizie. Dla każdej wartości parametru $s$ symulację powtórzono $1000$ razy.
+
+```{python}
+#| eval: false
+from src.handlers.rgb import RGB
+from src.evolution_simulation import Simulation, Creature
+
+import numpy as np
+import pandas as pd
+
+n = 5
+red, blue = RGB(255, 0, 0), RGB(0, 0, 255)
+creatures = [Creature(red) for _ in range(n)] + [Creature(blue) for _ in range(n)]
+min_color_similarities = np.arange(0, 1.05, 0.05)
+
+# Part A: gather metrics describing population characteristics
+results = list()
+for i, min_color_similarity in enumerate(min_color_similarities):
+    for j in range(1_000):
+
+        sim = Simulation(
+            size=1_000,
+            starting_creatures=creatures,
+            duration=100,
+            chance_breed=1,
+            chance_death=0.01,
+            chance_mutant=0.15,
+            min_color_similarity=min_color_similarity,
+            view_distance=250,
+            color_method="mean",
+        )
+
+        df_temp = pd.DataFrame(
+            [
+                (str(creature.color.code), creature.is_mutant)
+                for creature in sim.creatures
+            ],
+            columns=["color", "mutant"],
+        )
+
+        # średnia liczność grup
+        mean_group_size = (
+            df_temp.groupby("color")
+            .count()
+            .sort_values("mutant", ascending=False)["mutant"]
+            .mean()
+        )
+        # liczba mutantów
+        mutants_count = df_temp["mutant"].sum()
+        # liczba grup
+        colors_unique = df_temp["color"].nunique()
+        # liczba stworzonek
+
+        results.append(
+            {
+                "x": 1,
+                "y": 0.01,
+                "min_color_similarity": min_color_similarity,
+                "count": len(sim.creatures),
+                "mean_group_size": mean_group_size,
+                "mutants_count": mutants_count,
+                "colors_unique": colors_unique,
+            }
+        )
+
+pd.DataFrame(results).to_csv("./data/01_raw/task_3_A.csv", index=False)
+
+# Part B: gather colors data for just one simulation
+sim = Simulation(
+    size=1_000,
+    starting_creatures=creatures,
+    duration=100,
+    chance_breed=1,
+    chance_death=0.01,
+    chance_mutant=0.15,
+    min_color_similarity=0,
+    view_distance=250,
+    color_method="mean",
+)
+
+pd.DataFrame(
+    [(str(creature.color.code), creature.is_mutant) for creature in sim.creatures],
+    columns=["color", "mutant"],
+).to_csv("../data/01_raw/task_3_B.csv", index=False)
+```
+Wyniki zostały zapisane w folderze `data/01_raw` jako `task_3_A.csv` oraz `task_3_B.csv`. Etykieta `A` odpowiada wynikom symulacji dla różnych parametrów minimalnego podobieństwa, natomiast dane ze zbioru `B` pochodzą z jednej realizacji i są wykorzystane tylko w celu zwizualizowania przykładowych wyników.
+
+### Analiza danych
+Celem analizy jest zbadanie, jak parametr minimalnego podobieństwa $s$ wpływa na liczebność grup kolorystycznych. Grupę kolorystyczną tworzą stworki o identycznym kolorze.
+
+Na rysunku [-@fig-task-3-a-1] umieszczony został wykres, który obrazuje rozkład średniego rozmiaru grup kolorystycznych w zależności od parametru minimalnego podobieństwa $s$.
+
+```{r}
+#| label: fig-task-3-a-1
+#| fig-cap: "Wpływ parametru minimalnego podobieństwa na średni rozmiar grupy kolorystycznej"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+df_mutants <- read.csv('../../data/01_raw/task_3_A.csv')
+
+ggplot(df_mutants %>% na.omit()) +
+  geom_boxplot(
+    aes(
+      x=as.factor(min_color_similarity),
+      y=mean_group_size
+    )
+    ) + labs(
+      x = "s (param. min. podobieństwa)",
+      y = "śr. rozmiar grupy kolorystycznej"
+    )
+```
+Można zauważyć, że wraz ze wzrostem parametru $s$ rośnie również średni rozmiar grupy. Wskazuje na to wzrost mediany oraz kwantyli $25\%$ i $75\%$. Wzrost ten hamuje przypuszczalnie przy $s = 0.85$, co może oznaczać, że dla $s \geq 0.85$ liczba unikalnych grup kolorystycznych jest niska, a mutanty, ze względu na wysoką wartość parametru $s$, mają kłopoty ze znalezieniem pary zdolnej do rozmnożenia, skutkiem czego nie powstają nowe grupy kolorystyczne w inny sposób niż poprzez mutowanie.
+
+W celu weryfikacji tego przypuszczenia, na rysunku [-@fig-task-3-a-2] umieszczone zostały wykresy pudełkowe opisujące rozkład liczby unikalnych grup kolorystycznych dla róznych wartości parametru $s$. 
+
+```{r}
+#| label: fig-task-3-a-2
+#| fig-cap: "Wpływ parametru minimalnego podobieństwa na liczbę unikalnych grup kolorystycznych"
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+ggplot(df_mutants) +
+  geom_boxplot(
+    aes(
+      x = as.factor(min_color_similarity),
+      y = colors_unique
+    )
+  ) + labs(
+    x = "s (param. min. podobieństwa)",
+    y = "liczba unikalnych grup kolorystycznych (kolorów stworów)"
+  )
+```
+
+Warto odnotować, że w przeciwieństwie do zależności przedstawionych na rysunku [-@fig-task-3-a-1], mamy do czynienia z tendencją spadkową. Wraz ze wzrostem parametru $s$, maleje liczba unikalnych grup kolorystycznych. Ponownie widać, że dla $s \geq 0.85$ rozkład ten jest skupiony blisko zera, zatem faktycznie liczba kolorów jest niewielka. Z drugiej strony, dla $s \leq 0.15$, otryzmujemy rozkłady o bardzo podobnej charakterystyce, co może oznaczać, że niemal każdy stworek przy narodzinach tworzy nową grupę kolorystyczną.
+
+Rysunek [-@fig-task-3-a-3] przedstawia wykres rozrzutu dla liczby unikalnych grup kolorystycznych w zależności od liczby mutantów w kolonii oraz dobranego parametru $s$.
+```{r}
+#| label: fig-task-3-a-3
+#| fig-cap: "Zależność liczby unikalnych grup kolorystycznych od liczby mutantów w kolonii dla różnych wartości parametru minimalnego podobieństwa"
+#| fig-subcap: 
+#|  - "Wykres rozrzutu oraz regresja liniowa dla parametru $s \\leq 0.15$"
+#|  - "Wykres rozrzutu oraz regresja liniowa dla parametru $s \\geq 0.85$"
+#| layout-ncol: 2
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+ggplot(
+  data = df_mutants %>%
+    filter(min_color_similarity <= 0.15),
+  aes(
+    x = mutants_count,
+    y = colors_unique
+  )
+) +
+  geom_point() + labs(
+    x = "liczba mutantów w kolonii",
+    y = "liczba unikalnych kolorów"
+  ) + 
+  geom_smooth(
+    method = lm,
+    formula = y~x
+  ) +
+  ggtitle("s \u2264 0.15")
+  
+
+ggplot(
+  data = df_mutants %>%
+    filter(min_color_similarity >= 0.85),
+  aes(
+    x = mutants_count,
+    y = colors_unique
+  )
+) +
+  geom_point() + labs(
+    x = "liczba mutantów w kolonii",
+    y = "liczba unikalnych kolorów"
+  ) + 
+  geom_smooth(
+    method = lm,
+    formula = y~x
+  ) + 
+  ggtitle("s \u2265 0.85")
+```
+
+Widać, że zależność liczby unikalnych kolorów od liczby mutantów w kolonii ma charakter liniowy, natomiast stopień tej zależności różni się dla różnego doboru parametru minimalnego podobieństwa $s$. Przeprowadzając analizę regresji dla sytuacji skrajnych:
+
+* dla $s \geq 0.85$ współczynnik przy `mutants_count` (liczba mutantów w kolonii) jest bliski $1$, co oznacza, że każdy mutant jest odpowiedzialny za utworzenie około $1$ nowego koloru.
+```{r}
+#| eval: true
+#| echo: true
+#| fold: false
+#| output: true
+#| warning: false
+#| error: false
+reg_85 <- lm(
+  formula = colors_unique ~ mutants_count,
+  data = df_mutants %>% 
+    filter(min_color_similarity >= 0.85)
+)
+print(reg_85)
+```
+
+* dla $s \leq 0.15$ współczynnik przy `mutants_count` (liczba mutantów w kolonii) jest bliski $6.6$, co oznacza, że każdy mutant jest odpowiedzialny za utworzenie wielu nowych kolorów w wyniku rozmnażania.
+```{r}
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+reg_15 <- lm(
+  formula = colors_unique ~ mutants_count,
+  data = df_mutants %>% 
+    filter(min_color_similarity <= 0.15)
+)
+print(reg_15)
+```
+
+Można więc wywnioskować, że im korzystniejsze warunki do rozmnażania dla mutantów, a więc im niższa wartość parametru minimalnego podobieństwa $s$, tym więcej grup kolorystycznych powstaje, choć są one mniej liczne.
+
+Jako optymalny parametr minimalnego podobieństwa można zatem przyjąć $s = 0$, aby nie ograniczać w żadnym stopniu zdolności do rozmnażania się mutantów i potencjalnie zmaksymalizować liczbę osobników na koniec symulacji.
+
+Dla parametrów uznanych jako optymalne, a więc parametru rozmnażania $x = 1$, parametru śmiertelności $y = 0.01$ oraz parametru minimalnego podobieństwa $s = 0$ przeprowadzono symulację i zgromadzono dokładne dane o stworach, które wchodziły w skład kolonii na koniec symulacji. Na rysunku [-@fig-task-3-b] umieszczony został rozkład kolorystyczny stworów po $100$ iteracjach.
+
+```{r}
+#| label: fig-task-3-b
+#| fig-cap: "Rozkład kolorystyczny mutantów oraz stworów na koniec symulacji"
+#| fig-subcap: 
+#|  - "kolory mutantów"
+#|  - "kolory stworów z całej kolonii"
+#| layout-ncol: 2
+#| eval: true
+#| echo: true
+#| output: true
+#| warning: false
+#| error: false
+df_simulation <- read.csv('../../data/01_raw/task_3_B.csv')
+df_simulation$mutant <- as.logical(df_simulation$mutant)
+
+# Make RGB format compatible with R functions
+modified_rgb <- function(color) {
+  color <- as.numeric(
+      gsub("\\(|\\)|,","\\1", str_extract_all(color,"\\(?[0-9,.]+\\)?")[[1]])
+    ) / 255
+  
+  return (rgb(color[1], color[2], color[3]))
+}
+
+df_plot <- df_simulation %>% 
+  group_by(color) %>%
+  summarise(mut = max(mutant), size = n()) %>%
+  arrange(size)
+
+df_plot$color <- sapply(df_plot$color, modified_rgb)
+colors <- rgb2hsv(col2rgb(df_plot$color))
+for (i in c(1:nrow(df_plot))) {
+  df_plot$h[i] <- colors[1,i]
+  df_plot$s[i] <- colors[2,i]
+  df_plot$v[i] <- colors[3,i]
+}
+df_plot <- df_plot[order(df_plot$h),]
+
+ggplot(df_plot, aes(x="", y=mut, fill=color)) +
+  geom_bar(stat="identity", width=1, fill = df_plot$color) +
+  coord_polar(theta="y", start = 0) +
+  theme(
+    axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    legend.position = "none"
+  ) + xlab("")
+  
+ggplot(df_plot, aes(x="", y=size, fill=color)) +
+  geom_bar(stat="identity", width=1, fill = df_plot$color) +
+  coord_polar(theta="y", start = 0) +
+  theme(
+    axis.title.x=element_blank(),
+    axis.text.x=element_blank(),
+    axis.ticks.x=element_blank(),
+    legend.position = "none"
+  ) + xlab("")
+```
+
+Można dostrzec, że faktycznie kolory mutantów obejmują całą paletę barw. Natomiast zdecydowana większość stworów (około $75\%$) ma kolor o barwie między niebieskim i czerwonym, a więc kolorami początkowych stworzeń. 
+
+W celu przygotowania wizualizacji, kolory zostały przekonwertowane z reprezentacji `RGB` do modelu `HSV`, a następnie posortowane według parametru `H`, odpowiedzialnego za odcień barwy.
+
+### Wnioski
+Poniżej wypisane zostały najistotniejsze wnioski wyciągnięte w oparciu o przeprowadzoną wcześniej analizę danych:
+
+* wraz ze wzrostem parametru $s$, maleje liczba grup kolorystycznych, natomiast stają się one bardziej liczne -- populacja jest wówczas mniej zróżnicowana kolorystycznie.
+* za optymalny (w kontekście rozwoju populacji) parametr minimalnego podobieństwa $s$ można przyjąć $s = 0$, ponieważ dla tej wartości nie zostają narzucane dodatkowe warunki na rozmnażanie, dzięki czemu zmutowane stwory mogą rozmnażać się z dowolnym stworzeniem spełniającym pozostałe warunki, co pozytywnie wpływa na liczebność kolonii.
+
+# Podsumowanie
+W celu przygotowania proponowanych rozwiązań zadania rekrutacyjnego napisany został moduł realizujący założenia symulacji w języku `python`. Symulację przeprowadzono dla różnych parametrów i, w celu uzyskania miarodajnych wyników, powtórzono ją wielokrotnie dla każdego scenariusza.
+
+Przeprowadzona została analiza danych, na podstawie której wyciągnięto kilka istotnych wniosków, m.in.:
+
+* wyłoniony został optymalny zestaw parametrów, który gwarantuje spodziewanie najwyższą populację po zakończeniu symulacji,
+* zauważono, że wraz ze zwiększeniem parametru minimalnego podobieństwa, zwiększa się również prawdopodobieństwo zdominowania populacji przez stwory jednego koloru,
+* spostrzeżono liniową zależność między liczbą kolorów w populacji, a liczbą mutantów dla skrajnych wartości parametru minimalnego podobieństwa oraz zbadano charakter tej relacji.
+
+Wygenerowana została również wizualizacja dla konkretnej realizacji symulacji, która obrazuje rozkład kolorystyczny stworów po $100$ iteracjach.
